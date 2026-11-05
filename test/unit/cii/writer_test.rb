@@ -127,6 +127,51 @@ class CIIWriterTest < Minitest::Test
     assert_equal "VA", doc.at_xpath("#{SELLER}/ram:SpecifiedTaxRegistration/ram:ID", CII_NS)["schemeID"]
   end
 
+  def test_writes_seller_tax_registration_identifier
+    invoice = full_invoice
+    invoice.seller.tax_registration_identifier = "201/113/40209"
+    ids = write(invoice).xpath("#{SELLER}/ram:SpecifiedTaxRegistration/ram:ID", CII_NS)
+
+    assert_equal %w[DE123456789 201/113/40209], ids.map(&:text)
+    assert_equal %w[VA FC], ids.map { |id| id["schemeID"] }
+  end
+
+  def test_omits_tax_registration_identifier_by_default
+    ids = write(full_invoice).xpath("#{SELLER}/ram:SpecifiedTaxRegistration/ram:ID", CII_NS)
+
+    assert_equal %w[VA], ids.map { |id| id["schemeID"] }
+  end
+
+  def test_seller_tax_registration_identifier_survives_roundtrip
+    invoice = full_invoice
+    invoice.seller.tax_registration_identifier = "201/113/40209"
+    seller = Zugpferd::CII::Reader.new.read(Zugpferd::CII::Writer.new.write(invoice)).seller
+
+    assert_equal "201/113/40209", seller.tax_registration_identifier
+    assert_equal "DE123456789", seller.vat_identifier
+  end
+
+  def test_omits_tax_registration_identifier_of_buyer
+    invoice = full_invoice
+    invoice.buyer.tax_registration_identifier = "99/999/99999"
+    ids = write(invoice).xpath("//ram:BuyerTradeParty/ram:SpecifiedTaxRegistration/ram:ID", CII_NS)
+
+    refute_includes ids.map { |id| id["schemeID"] }, "FC"
+  end
+
+  def test_ignores_tax_registration_identifier_of_buyer_when_reading
+    invoice = full_invoice
+    invoice.seller.tax_registration_identifier = "201/113/40209"
+    xml = Zugpferd::CII::Writer.new.write(invoice).sub(
+      "</ram:BuyerTradeParty>",
+      '<ram:SpecifiedTaxRegistration><ram:ID schemeID="FC">99/999/99999</ram:ID></ram:SpecifiedTaxRegistration></ram:BuyerTradeParty>'
+    )
+    read = Zugpferd::CII::Reader.new.read(xml)
+
+    assert_nil read.buyer.tax_registration_identifier
+    assert_equal "201/113/40209", read.seller.tax_registration_identifier
+  end
+
   def test_writes_party_electronic_address_with_scheme
     uri = write(full_invoice).at_xpath("#{SELLER}/ram:URIUniversalCommunication/ram:URIID", CII_NS)
 
